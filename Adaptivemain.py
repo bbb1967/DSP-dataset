@@ -672,11 +672,9 @@ def create_data_loader():
     X = img_new
     y = gt_all
 
-    # 假设 num_train_samples_per_class 是一个字典，存储每个类别需要的训练样本数量
-    train_samples_per_class = {0: 9000, 1: 7000, 2: 5000, 3: 3000,
-                               4: 6000, 5: 3000, 6: 1800, 7: 1500, 8: 1000}  # 按需更改类别和样本数量
-    validate_samples_per_class = {0: 4500, 1: 3507, 2: 2500, 3: 1500,
-                                  4: 3000, 5: 1500, 6: 900, 7: 750, 8: 500}  #
+
+    train_samples_per_class = {}  
+    validate_samples_per_class = {}  
 
     # 初始化训练集和测试集的列表
     X_train = []
@@ -849,10 +847,10 @@ class TestDS(torch.utils.data.Dataset):
     def __len__(self):
             return self.len
 
-class_weights = torch.tensor([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=torch.float32)
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-class_weights = class_weights.to(device)
-# 将权重传递给CrossEntropyLoss
+
+
 # L2正则化函数
 def l2_regularization(model, lambda_l2=1e-4):
     l2_norm = sum(p.pow(2).sum() for p in model.parameters())
