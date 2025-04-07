@@ -108,13 +108,10 @@ def create_data_loader():
     X = img_new
     y = gt_all
 
-    # 假设 num_train_samples_per_class 是一个字典，存储每个类别需要的训练样本数量
-    train_samples_per_class = {0: 35000, 1: 25100, 2: 15200, 3: 12000,
-                               4: 10000, 5: 8000, 6: 9200, 7: 8500, 8: 5000}
-    validate_samples_per_class = {0: 1120, 1: 730, 2: 114, 3: 30,
-                                  4: 424, 5: 230, 6: 40, 7: 5, 8: 13}  #
+    
+    train_samples_per_class = {}
+    validate_samples_per_class = {}  #
 
-    # 初始化训练集和测试集的列表
     X_train = []
     y_train = []
     X_validate = []
@@ -290,7 +287,6 @@ def train(train_loader, validate_loader, epochs):
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     # 网络放到GPU上
     net = DSP2Net.DSP2Net().to(device)
-    #class_weights = torch.tensor([1.6, 4, 15, 6, 6.3, 6.8, 6.2, 10, 25], dtype=torch.float).to(device)
 
     # 将权重传递给 CrossEntropyLoss
     criterion = nn.CrossEntropyLoss()
