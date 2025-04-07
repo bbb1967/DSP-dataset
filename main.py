@@ -287,8 +287,6 @@ def train(train_loader, validate_loader, epochs):
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     # 网络放到GPU上
     net = DSP2Net.DSP2Net().to(device)
-
-    # 将权重传递给 CrossEntropyLoss
     criterion = nn.CrossEntropyLoss()
     # 初始化优化器
     optimizer = optim.Adam(net.parameters(), lr=0.001, weight_decay=1e-4)
