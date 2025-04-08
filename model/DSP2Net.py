@@ -1,7 +1,7 @@
-import torch.nn as nn  # nn模块包含了用于构建神经网络的类和函数
-import torch.nn.functional as F  # 这行代码导入PyTorch深度学习库的函数模块，其中F模块包含了一些常用的神经网络函数，如激活函数、损失函数等
+import torch.nn as nn 
+import torch.nn.functional as F  
 import torch
-from torch.nn import init  # 从PyTorch的神经网络模块中导入参数初始化的函数
+from torch.nn import init  
 from einops import rearrange
 from torchinfo import summary
 from timm.models.layers import DropPath, to_2tuple
@@ -424,7 +424,7 @@ class PositionalEncoding2D(nn.Module):
         return pe
 
     def _encode_position(self, x, y):
-        # 使用sin和cos函数生成位置编码
+      
         encoding = torch.zeros(self.d_model)
         div_term = torch.exp(torch.arange(0, self.d_model, 2) * -(math.log(10000.0) / self.d_model))
         encoding[0::2] = torch.sin(x * div_term)
@@ -432,11 +432,11 @@ class PositionalEncoding2D(nn.Module):
         return encoding
 
     def forward(self, x):
-        # 将位置编码加到输入特征上
+   
         x = x + self.pe.to(x.device)
         return x
 
-class DSP2Net(nn.Module):  # Tri-CNN 构建的三分支3DCNN网络模型
+class DSP2Net(nn.Module):  
     @staticmethod
     def weight_init(m):
         if isinstance(m, nn.Linear) or isinstance(m, nn.Conv3d) or isinstance(m, nn.Conv2d):
@@ -455,8 +455,8 @@ class DSP2Net(nn.Module):  # Tri-CNN 构建的三分支3DCNN网络模型
             DilationConv3D(
                 in_channels=64,
                 out_channels=16,
-                kernel_size=(1, 3, 3),  # 保持卷积核尺寸
-                dilations=(1, 2)  # 多尺度膨胀
+                kernel_size=(1, 3, 3),  
+                dilations=(1, 2)  
             ),
             nn.ReLU(),
 
@@ -519,7 +519,7 @@ class DSP2Net(nn.Module):  # Tri-CNN 构建的三分支3DCNN网络模型
         x = self.cross_attention(x)
 
         x = x.mean(dim=1)
-        # 进行平均池化操作
+      
         x = F.gelu(x)
         # print(x.shape)
         x = self.feed_forward(x)
@@ -531,7 +531,7 @@ class DSP2Net(nn.Module):  # Tri-CNN 构建的三分支3DCNN网络模型
 
 if __name__ == '__main__':
     model = DSP2Net()
-    # model.eval()   # 模型切换到推理模式
+    # model.eval()  
     # print(model)
     input = torch.randn(64, 1, 6, 9, 9)
     print("input shape:", input.shape)
