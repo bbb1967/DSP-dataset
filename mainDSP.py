@@ -115,7 +115,8 @@ def create_data_loader():
     y_validate = []
     X_test = []
     y_test = []
-
+    train_samples_per_class = {}  
+    validate_samples_per_class = {}  
     for i in range(0, 9):
 
         X_i = X[y == i]
