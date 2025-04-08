@@ -19,21 +19,20 @@ from scipy import io as sio
 import datetime
 from scipy.ndimage import median_filter
 from collections import Counter
-import argparse  # 用于解析命令参数
+import argparse
 import torch.nn.functional as F
 
 def loadData():
-    mat_path = "path/data.mat"  # 多光谱影像.mat文件路径
+    mat_path = "path/data.mat" 
     mat1_path = "path/labels.mat"
 
 
-    # 从.mat文件中加载数据
     data = sio.loadmat(mat_path)['image']
     labels = sio.loadmat(mat1_path)['label']
 
 
     # data = np.transpose(data, (1, 2, 0))
-    # 打印形状
+
     print("Data shape:", data.shape)
     print("Labels shape:", labels.shape)
 
@@ -41,8 +40,7 @@ def loadData():
 
 
 
-# 对单个像素周围提取 patch 时，边缘像素就无法取了，因此，给这部分像素进行 padding 操作
-def padWithZeros(X, margin=2):  # 0填充，填充的边距margin
+def padWithZeros(X, margin=2):  
     newX = np.zeros((X.shape[0] + 2 * margin, X.shape[1] + 2 * margin, X.shape[2]))
     x_offset = margin
     y_offset = margin
@@ -51,16 +49,16 @@ def padWithZeros(X, margin=2):  # 0填充，填充的边距margin
     return newX
 
 
-# 在每个像素周围提取patch，然后创建成符合keras处理的格式，并返回相对应的标签
+
 def createImageCubes(X, y, windowSize=5, removeZeroLabels=True):
-    # 给X做padding，removeZeroLabels表示是否移除标签为零的图像块（默认值为True）
+  
     margin = int((windowSize - 1) / 2)
-    zeroPaddedX = padWithZeros(X, margin=margin)  # 进行0填充，以提取边缘图像块
+    zeroPaddedX = padWithZeros(X, margin=margin) 
     # split patches
-    patchesData = np.zeros((X.shape[0] * X.shape[1], windowSize, windowSize, X.shape[2]))  # 用于存储图像块
-    patchesLabels = np.zeros((X.shape[0] * X.shape[1]))  # 存储相应图像块中心像素的标签
+    patchesData = np.zeros((X.shape[0] * X.shape[1], windowSize, windowSize, X.shape[2]))  
+    patchesLabels = np.zeros((X.shape[0] * X.shape[1]))  
     patchIndex = 0
-    for r in range(margin, zeroPaddedX.shape[0] - margin):  # 遍历X中的每个元素
+    for r in range(margin, zeroPaddedX.shape[0] - margin): 
         for c in range(margin, zeroPaddedX.shape[1] - margin):
             patch = zeroPaddedX[r - margin:r + margin + 1, c - margin:c + margin + 1]
             patchesData[patchIndex, :, :, :] = patch
@@ -69,7 +67,7 @@ def createImageCubes(X, y, windowSize=5, removeZeroLabels=True):
     if removeZeroLabels:
         patchesData = patchesData[patchesLabels > 0, :, :, :]
         patchesLabels = patchesLabels[patchesLabels > 0]
-        patchesLabels -= 1  # 可能是为了调整标签值的范围，使得类别索引从0开始
+        patchesLabels -= 1  
 
     return patchesData, patchesLabels
 
@@ -111,13 +109,6 @@ def create_data_loader():
     X = img_new
     y = gt_all
 
-    # 假设 num_train_samples_per_class 是一个字典，存储每个类别需要的训练样本数量
-    train_samples_per_class = {0: 5604, 1: 4742, 2: 3522, 3: 1345,
-                               4: 5344, 5: 2700, 6: 1500, 7: 617, 8: 324}
-    validate_samples_per_class = {0: 1120, 1: 730, 2: 114, 3: 30,
-                                  4: 424, 5: 230, 6: 40, 7: 5, 8: 13}  #
-
-    # 初始化训练集和测试集的列表
     X_train = []
     y_train = []
     X_validate = []
@@ -125,12 +116,11 @@ def create_data_loader():
     X_test = []
     y_test = []
 
-    # 对每个类别进行循环
     for i in range(0, 9):
-        # 提取该类别的数据和标签
+
         X_i = X[y == i]
         y_i = y[y == i]
-        # 划分训练集和测试集，按照指定的训练样本数量  random_state用来设置一个随机取样的格式，可以重现结果
+
         X_train_i, X_temp_i, y_train_i, y_temp_i = train_test_split(X_i, y_i, train_size=train_samples_per_class[i],
                                                                     random_state=42)
         X_validate_i, X_test_i, y_validate_i, y_test_i = train_test_split(X_temp_i, y_temp_i,
@@ -148,7 +138,7 @@ def create_data_loader():
         remaining_samples = len(X_i) - train_samples_per_class[i] - validate_samples_per_class[i]
         print(f"After sampling for class {i}, remaining samples: {remaining_samples}")
 
-    # 将列表转换为数组
+
     X_train = np.concatenate(X_train, axis=0)
     y_train = np.concatenate(y_train, axis=0)
     X_validate = np.concatenate(X_validate, axis=0)
@@ -156,7 +146,6 @@ def create_data_loader():
     X_test = np.concatenate(X_test, axis=0)
     y_test = np.concatenate(y_test, axis=0)
 
-    # 打印训练集和测试集的形状
     print('X_train shape:', X_train.shape)
     print('y_train shape:', y_train.shape)
     print('X_validate shape:', X_validate.shape)
@@ -164,7 +153,6 @@ def create_data_loader():
     print('X_test shape:', X_test.shape)
     print('y_test shape:', y_test.shape)
 
-    # 改变 Xtrain, Ytrain 的形状，以符合 keras 的要求
     X = X.reshape(-1, patch_size, patch_size, 6, 1)
     X_train = X_train.reshape(-1, patch_size, patch_size, 6, 1)
     X_validate = X_validate.reshape(-1, patch_size, patch_size, 6, 1)
@@ -173,7 +161,7 @@ def create_data_loader():
     print('before transpose: Xvalidate shape: ', X_validate.shape)
     print('before transpose: Xtest  shape: ', X_test.shape)
 
-    # 为了适应 pytorch 结构，数据要做 transpose
+
     X = X.transpose(0, 4, 3, 1, 2)
     X_train = X_train.transpose(0, 4, 3, 1, 2)
     X_validate = X_validate.transpose(0, 4, 3, 1, 2)
@@ -182,19 +170,18 @@ def create_data_loader():
     print('after transpose: Xvalidate shape: ', X_validate.shape)
     print('after transpose: Xtest  shape: ', X_test.shape)
 
-    # 创建train_loader和 test_loader
     X = TestDS(X, gt_all)
     trainset = TrainDS(X_train, y_train)
     validateset = ValidateDS(X_validate, y_validate)
     testset = TestDS(X_test, y_test)
     train_loader = torch.utils.data.DataLoader(dataset=trainset,
                                                batch_size=BATCH_SIZE_TRAIN,
-                                               shuffle=True,   # 这行代码设置了是否在每个训练周期开始时打乱数据的顺序，这里设置为True，表示需要打乱
+                                               shuffle=True,  
                                                num_workers=0,
                                                )
     validate_loader = torch.utils.data.DataLoader(dataset=validateset,
                                                batch_size=BATCH_SIZE_TRAIN,
-                                               shuffle=True,  # 这行代码设置了是否在每个训练周期开始时打乱数据的顺序，这里设置为True，表示需要打乱
+                                               shuffle=True, 
                                                num_workers=0,
                                                )
     test_loader = torch.utils.data.DataLoader(dataset=testset,
@@ -210,8 +197,7 @@ def create_data_loader():
 
     return train_loader, validate_loader, test_loader, all_data_loader, y, gt, y_train
 
-def get_classification_map(y_pred, y):  # 将模型的分类预测(y_pred)映射到一个大小与真实标签(y)相同的二维数组
-
+def get_classification_map(y_pred, y): 
     height = y.shape[0]
     width = y.shape[1]
     k = 0
@@ -222,32 +208,23 @@ def get_classification_map(y_pred, y):  # 将模型的分类预测(y_pred)映射
             if target == 0:
                 continue
             else:
-                cls_labels[i][j] = y_pred[k] + 1  # patchesLabels-=1相对应，即类别标签从0开始的，此时赋值时要加上1
+                cls_labels[i][j] = y_pred[k] + 1  
                 k += 1
 
     return cls_labels
-def convert_to_color(x):  # 将标签数组转换为RGB颜色编码的图像
+def convert_to_color(x): 
     return convert_to_color_(x, palette=palette)
 def convert_to_color_(arr_2d, palette=None):
-    """ 将标签数组转换为RGB颜色编码的图像.
-
-    参数:
-        arr_2d：包含标签的整数2D数组
-        palette：颜色字典，用于表示标签号与RGB元组的对应关系
-
-    返回:
-        arr_3d：使用RGB格式编码的颜色标签的整数2D图像
-
-    """
-    arr_3d = np.zeros((arr_2d.shape[0], arr_2d.shape[1], 3), dtype=np.uint8)  # 创建一个全零的三维数组，表示图像
+   
+    arr_3d = np.zeros((arr_2d.shape[0], arr_2d.shape[1], 3), dtype=np.uint8)  
     if palette is None:
         raise Exception("Unknown color palette")
 
-    for c, i in palette.items():  # 对颜色调色板中的每个标签号和相应的RGB元组进行迭代
-        m = arr_2d == c  # 创建一个布尔掩码，其中标签数组中等于当前标签号c的位置为True，其他位置为False
-        arr_3d[m] = i  # 使用布尔掩码将对应位置的三维数组元素赋值为当前标签号c对应的RGB元组i
+    for c, i in palette.items():  
+        m = arr_2d == c  
+        arr_3d[m] = i  
 
-    return arr_3d  # 返回转换后的RGB彩色图像数组
+    return arr_3d  
 
 
 """ Training dataset"""
@@ -386,20 +363,8 @@ def train(train_loader, validate_loader, epochs, lossq):
             optimizer.step()
             total_loss += loss.item()
 
-        avg_loss = total_loss / (i + 1)  # 每个epoch的平均损失
+        avg_loss = total_loss / (i + 1)  
         print('[Epoch: %d]   [loss avg: %.4f]   [current loss: %.4f]' % (epoch + 1, avg_loss, loss.item()))
-
-        # 检查当前损失
-        if loss.item() > 1.5:
-            current_loss_high_count += 1
-            print(f"Current loss > 1.5: Count = {current_loss_high_count}")
-        else:
-            current_loss_high_count = 0  # 重置计数器
-
-        # 如果连续10个epoch损失高于1.5，则重新开始训练
-        if current_loss_high_count >= 10:
-            print("Current loss has been above 1.5 for 10 epochs, restarting training.")
-            return train(train_loader, validate_loader, epochs, lossq)
 
         val_loss = validate(validate_loader, net, criterion1, device)
         scheduler.step(val_loss)
@@ -470,31 +435,31 @@ def acc_reports(y_test, y_pred_test):
     recall = recall_score(y_test, y_pred_test, average='macro')  # 召回率
     f1 = f1_score(y_test, y_pred_test, average='macro')  # F1分数
 
-    # 计算交并比（IOU）
+
     intersection = np.diag(confusion)
     ground_truth_set = confusion.sum(axis=1)
     predicted_set = confusion.sum(axis=0)
     union = ground_truth_set + predicted_set - intersection
     IOU = intersection / union
 
-    # 计算频率加权交并比（FWIOU）
+   
     freq = ground_truth_set / np.sum(ground_truth_set)
     FWIOU = (freq[freq > 0] * IOU[freq > 0]).sum()
 
     return classification, oa * 100, confusion, each_acc * 100, aa * 100, kappa * 100, recall * 100, f1 * 100, IOU, FWIOU
 
-parser = argparse.ArgumentParser(  # 创建一个ArgumentParser对象，用于解析命令行参数
+parser = argparse.ArgumentParser( 
     description="Run deep learning experiments on" " various hyperspectral datasets"
 )
-# 在主函数中调用 acc_reports 函数并打印结果
-if __name__ == '__main__':
-    num_runs = 6  # 设置运行次数
-    all_results = []  # 存储每次运行的结果
-    #date_str = datetime.now().strftime("%Y-%m-%d")  # 获取当前日期
-    results_file = f'DSP.txt'  # 创建以日期命名的文件
 
-    with open(results_file, 'w') as f:  # 清空并准备写入文件
-        f.write("Run, OA, AA, Kappa, Recall, F1, Each Acc\n")  # 添加表头
+if __name__ == '__main__':
+    num_runs = 6  
+    all_results = []  
+    #date_str = datetime.now().strftime("%Y-%m-%d")  
+    results_file = f'DSP.txt' 
+
+    with open(results_file, 'w') as f: 
+        f.write("Run, OA, AA, Kappa, Recall, F1, Each Acc\n")  
 
     for run in range(num_runs):
         print(f"Run {run + 1}/{num_runs}")
@@ -544,8 +509,8 @@ if __name__ == '__main__':
         color_cls_labels = convert_to_color(cls_labels)
 
         folder_path = "cls_map"
-        MODEL = "kaiti"  # 示例模型名称
-        DATASET = "kzhq"  # 示例数据集名称
+        MODEL = "1"  
+        DATASET = "1" 
         im_name = f"{MODEL}_{DATASET}_{run + 1}_{round(oa, 2)}_{round(aa, 2)}.jpg"
 
         if not os.path.exists(folder_path):
