@@ -290,9 +290,9 @@ class FusionConv(nn.Module):
 
         return x_out
 
-class MSAA(nn.Module):
+class TA(nn.Module):
     def __init__(self, in_channels, out_channels):
-        super(MSAA, self).__init__()
+        super(TA, self).__init__()
         self.fusion_conv = FusionConv(in_channels, out_channels)
 
     def forward(self, x1, x2, x4, last=False):
@@ -390,9 +390,9 @@ class DSP2Net(nn.Module):  # Tri-CNN 构建的三分支3DCNN网络模型
         self.apply(self.weight_init)
         self.bn = nn.BatchNorm1d(num_features=128)
         self.layer_norm = nn.LayerNorm(128)
-        self.msaa = MSAA(in_channels=144, out_channels=136)
-        self.multi_conv = MultiConvModule(in_channels=136)
-        #self.multi_conv1 = MultiConvModule(in_channels=16)
+        self.TA = TA(in_channels=144, out_channels=136)
+        self.MSFE = MultiConvModule(in_channels=136)
+        #self.MSFE = MultiConvModule(in_channels=16)
         self.cross_attention = CrossAttention(dim=128, heads=8, dim_head=8, dropout=0.1)
     def forward(self, x):  # forward方法，它定义了数据在神经网络中的前向传播过程
         x_1 = self.conv3d_spatial(x)
@@ -407,9 +407,9 @@ class DSP2Net(nn.Module):  # Tri-CNN 构建的三分支3DCNN网络模型
         x_2 = rearrange(x_2, 'b c h w y -> b (c h) w y')
         x_3 = rearrange(x_3, 'b c h w y -> b (c h) w y')
         #print(x.shape)
-        x_msaa = self.msaa(x_1, x_2, x_3)
+        x_msaa = self.TA(x_1, x_2, x_3)
         #x = self.conv2d_features_1(x_msaa)
-        x = self.multi_conv(x_msaa)
+        x = self.MSFE(x_msaa)
         x = self.conv2d_features_1(x)
         x = rearrange(x, 'b c h w -> b (h w) c')
         
