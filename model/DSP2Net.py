@@ -1,7 +1,7 @@
-import torch.nn as nn 
-import torch.nn.functional as F  
+import torch.nn as nn  # nn模块包含了用于构建神经网络的类和函数
+import torch.nn.functional as F  # 这行代码导入PyTorch深度学习库的函数模块，其中F模块包含了一些常用的神经网络函数，如激活函数、损失函数等
 import torch
-from torch.nn import init  
+from torch.nn import init  # 从PyTorch的神经网络模块中导入参数初始化的函数
 from einops import rearrange
 from torchinfo import summary
 from timm.models.layers import DropPath, to_2tuple
@@ -11,9 +11,7 @@ from typing import Union, Tuple, Optional
 import torch
 from einops import rearrange
 from torch import Tensor
-import math
 NUM_CLASS = 11
-
 
 class Swish(nn.Module):
     def __init__(self) -> None:
@@ -41,39 +39,7 @@ class Mish(nn.Module):
         return (inputs * torch.tanh(F.softplus(inputs)))
 
 
-class DilationConv3D(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=(3, 3, 3), dilations=(1, 2)):
-        """
-        3D Convolution branch with dilation rates.
-        :param in_channels: Number of input channels.
-        :param out_channels: Number of output channels.
-        :param kernel_size: Kernel size for the convolution.
-        :param dilations: Tuple of dilation rates for multi-scale convolution.
-        """
-        super(DilationConv3D, self).__init__()
-        self.convs = nn.ModuleList([
-            nn.Conv3d(
-                in_channels,
-                out_channels,
-                kernel_size=kernel_size,
-                padding=tuple(d * (k - 1) // 2 for d, k in zip((d, d, d), kernel_size)),  # Dynamically compute padding
-                dilation=d,
-                bias=False
-            )
-            for d in dilations
-        ])
-        self.bn = nn.BatchNorm3d(out_channels)
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        # Apply multiple dilations and combine results (e.g., sum or average)
-        outputs = [conv(x) for conv in self.convs]
-        x = sum(outputs) / len(outputs)  # Average across dilations
-        x = self.bn(x)
-        x = self.relu(x)
-        return x
-
-class MultiConvModule3D(nn.Module):
+class MultiConvModule(nn.Module):
     """
     The extension from ConvModule1 with multiscale dilation for 4D input
     """
@@ -81,12 +47,12 @@ class MultiConvModule3D(nn.Module):
     def __init__(
             self,
             in_channels: int,
-            kernel_size: int = 7,
+            kernel_size: int = 31,
             expansion_factor: int = 2,
             dropout_p: float = 0.1,
             dilation_rate: int = 1
     ) -> None:
-        super(MultiConvModule3D, self).__init__()
+        super(MultiConvModule, self).__init__()
         assert (kernel_size - 1) % 2 == 0, "kernel_size should be an odd number for 'SAME' padding"
 
         out_channels = in_channels * expansion_factor
@@ -96,39 +62,33 @@ class MultiConvModule3D(nn.Module):
         padding_size1 = ((kernel_size - 1) * (i - 1) + kernel_size - 1) // 2
         padding_size2 = ((kernel_size2 - 1) * (i - 1) + kernel_size2 - 1) // 2
 
-
-        self.c1 = nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=True)
+        self.c1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=True)
         self.relu = nn.ReLU()
-        self.c2 = nn.Conv3d(out_channels, out_channels, kernel_size=kernel_size, groups=out_channels, stride=1, dilation=i,
-                             padding=padding_size1)
-
-        self.bn2 = nn.BatchNorm3d(out_channels)
-
+        self.c2 = nn.Conv2d(out_channels, out_channels, kernel_size, groups=out_channels, stride=1, dilation=i,
+                            padding=padding_size1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
         self.swish = Swish()
-        self.c3 = nn.Conv3d(out_channels, out_channels, kernel_size=kernel_size2, groups=out_channels, stride=1, dilation=i,
-                             padding=padding_size2)
-
-        self.c4 = nn.Conv3d(out_channels, in_channels, kernel_size=1, stride=1, padding=0, bias=True)
-        self.do = nn.Dropout3d(p=dropout_p)
+        self.c3 = nn.Conv2d(out_channels, out_channels, kernel_size2, groups=out_channels, stride=1, dilation=i,
+                            padding=padding_size2)
+        self.c4 = nn.Conv2d(out_channels, in_channels, kernel_size=1, stride=1, padding=0, bias=True)
+        self.do = nn.Dropout2d(p=dropout_p)
 
     def forward(self, x):
         x = self.c1(x)
         x = self.relu(x)
-
-        # Multi-scale convolutions
-        x2 = self.c2(x)
+        x1 = self.c2(x)
+        x1 = self.bn2(x1)
+        x1 = self.swish(x1)
+        x2 = self.c3(x)
         x2 = self.bn2(x2)
         x2 = self.swish(x2)
-        x3 = self.c3(x)
-        x3 = self.bn2(x3)
-        x3 = self.swish(x3)
-        x = x2 + x3  # Combine the features from different scales
+        x = x1 + x2
         x = self.c4(x)
         x = self.do(x)
 
         return x
-
 class Involution2d(nn.Module):
+
 
     def __init__(self,
                  in_channels: int,
@@ -189,12 +149,9 @@ class Involution2d(nn.Module):
         # Init modules
         self.sigma_mapping = sigma_mapping if sigma_mapping is not None else nn.Sequential(
             nn.BatchNorm2d(num_features=self.out_channels // self.reduce_ratio, momentum=0.3), nn.ReLU())
-        self.initial_mapping = nn.Sequential(
-            nn.Conv2d(in_channels=self.in_channels, out_channels=self.in_channels, kernel_size=(3, 3), stride=(1, 1),
-                      padding=(1, 1), groups=self.in_channels, bias=bias),
-            nn.Conv2d(in_channels=self.in_channels, out_channels=self.out_channels, kernel_size=(1, 1), stride=(1, 1),
-                      padding=(0, 0), bias=bias)
-        )  # 修改了，使用深度可分离卷积，将标准卷积分解为深度卷积（Depthwise Convolution）和逐点卷积（Pointwise Convolution）
+        self.initial_mapping = nn.Conv2d(in_channels=self.in_channels, out_channels=self.out_channels,
+                                         kernel_size=(1, 1), stride=(1, 1), padding=(0, 0),
+                                         bias=bias) if self.in_channels != self.out_channels else nn.Identity()
         self.o_mapping = nn.AvgPool2d(kernel_size=self.stride, stride=self.stride)
         self.reduce_mapping = nn.Conv2d(in_channels=self.in_channels,
                                         out_channels=self.out_channels // self.reduce_ratio, kernel_size=(1, 1),
@@ -261,49 +218,27 @@ class Involution2d(nn.Module):
 
 class FeedForwardBlock(nn.Sequential):
     def __init__(self, emb_size: int, expansion: int = 8, drop_p: float = 0.):
-        print("expansion: ", expansion)
+        print ("expansion: ", expansion)
         super().__init__(
             nn.Linear(emb_size, expansion * emb_size),
             nn.GELU(),
-            # Swish(),
+            #Swish(),
             nn.Dropout(drop_p),
             nn.Linear(expansion * emb_size, emb_size),
             nn.Dropout(drop_p)
         )
 
 
-class BPP(nn.Module):
-    def __init__(self, epsilon):
-        super(BPP, self).__init__()
-        self.epsilon = epsilon
 
-    def forward(self, features1, features2):
-        # unify the size of width and height
-        B, C, H, W = features1.size()
-        _, M, AH, AW = features2.size()
-
-        # match size
-        if AH != H or AW != W:
-            features2 = F.upsample_bilinear(features2, size=(H, W))
-
-        # essential_matrix: (B, M, C) -> (B, M * C)
-        essential_matrix = (torch.einsum('imjk,injk->imn', (features2, features1)) / float(H * W)).view(B, -1)
-        # normalize
-        essential_matrix = torch.sign(essential_matrix) * torch.sqrt(torch.abs(essential_matrix) + self.epsilon)
-        essential_matrix = F.normalize(essential_matrix, dim=-1)
-
-        return essential_matrix
-
-
-class ChannelAttentionModule3D(nn.Module):
+class ChannelAttentionModule(nn.Module):
     def __init__(self, in_channels, reduction=4):
-        super(ChannelAttentionModule3D, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool3d(1)
-        self.max_pool = nn.AdaptiveMaxPool3d(1)
+        super(ChannelAttentionModule, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
         self.fc = nn.Sequential(
-            nn.Conv3d(in_channels, in_channels // reduction, 1, bias=False),
+            nn.Conv2d(in_channels, in_channels // reduction, 1, bias=False),
             nn.ReLU(inplace=True),
-            nn.Conv3d(in_channels // reduction, in_channels, 1, bias=False)
+            nn.Conv2d(in_channels // reduction, in_channels, 1, bias=False)
         )
         self.sigmoid = nn.Sigmoid()
 
@@ -314,10 +249,10 @@ class ChannelAttentionModule3D(nn.Module):
         return self.sigmoid(out)
 
 
-class SpatialAttentionModule3D(nn.Module):
+class SpatialAttentionModule(nn.Module):
     def __init__(self, kernel_size=7):
-        super(SpatialAttentionModule3D, self).__init__()
-        self.conv1 = nn.Conv3d(2, 1, kernel_size, padding=kernel_size // 2, bias=False)
+        super(SpatialAttentionModule, self).__init__()
+        self.conv1 = nn.Conv2d(2, 1, kernel_size, padding=kernel_size // 2, bias=False)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -328,59 +263,58 @@ class SpatialAttentionModule3D(nn.Module):
         return self.sigmoid(x)
 
 
-class FusionConv3D(nn.Module):
+class FusionConv(nn.Module):
     def __init__(self, in_channels, out_channels, factor=4.0):
-        super(FusionConv3D, self).__init__()
+        super(FusionConv, self).__init__()
         dim = int(out_channels // factor)
-        self.down = nn.Conv3d(in_channels, dim, kernel_size=1, stride=1)
-        self.conv_3x3 = nn.Conv3d(dim, dim, kernel_size=3, stride=1, padding=1)
-        self.conv_5x5 = nn.Conv3d(dim, dim, kernel_size=5, stride=1, padding=2)
-        self.conv_7x7 = nn.Conv3d(dim, dim, kernel_size=7, stride=1, padding=3)
-
-        self.spatial_attention = SpatialAttentionModule3D()
-        self.channel_attention = ChannelAttentionModule3D(dim)
-
-        self.up = nn.Conv3d(dim, out_channels, kernel_size=1, stride=1)
+        self.down = nn.Conv2d(in_channels, dim, kernel_size=1, stride=1)
+        self.conv_3x3 = nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1)
+        self.conv_5x5 = nn.Conv2d(dim, dim, kernel_size=5, stride=1, padding=2)
+        self.conv_7x7 = nn.Conv2d(dim, dim, kernel_size=7, stride=1, padding=3)
+        self.spatial_attention = SpatialAttentionModule()
+        self.channel_attention = ChannelAttentionModule(dim)
+        self.up = nn.Conv2d(dim, out_channels, kernel_size=1, stride=1)
+        self.down_2 = nn.Conv2d(in_channels, dim, kernel_size=1, stride=1)
 
     def forward(self, x1, x2, x4):
         x_fused = torch.cat([x1, x2, x4], dim=1)
         x_fused = self.down(x_fused)
         x_fused_c = x_fused * self.channel_attention(x_fused)
-
         x_3x3 = self.conv_3x3(x_fused)
         x_5x5 = self.conv_5x5(x_fused)
         x_7x7 = self.conv_7x7(x_fused)
         x_fused_s = x_3x3 + x_5x5 + x_7x7
         x_fused_s = x_fused_s * self.spatial_attention(x_fused_s)
 
-        x_out = x_fused_s + x_fused_c
-        x_out = self.up(x_out)
+        x_out = self.up(x_fused_s + x_fused_c)
 
         return x_out
-
 
 class MSAA(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(MSAA, self).__init__()
-        self.fusion_conv = FusionConv3D(in_channels, out_channels)
+        self.fusion_conv = FusionConv(in_channels, out_channels)
 
     def forward(self, x1, x2, x4, last=False):
+        # # x2 是从低到高，x4是从高到低的设计，x2传递语义信息，x4传递边缘问题特征补充
+        # x_1_2_fusion = self.fusion_1x2(x1, x2)
+        # x_1_4_fusion = self.fusion_1x4(x1, x4)
+        # x_fused = x_1_2_fusion + x_1_4_fusion
         x_fused = self.fusion_conv(x1, x2, x4)
         return x_fused
 
-
 class CrossAttention(nn.Module):
-    def __init__(self, dim, heads=8, dim_head=8, dropout=0.):
+    def __init__(self, dim, heads = 8, dim_head = 8, dropout = 0.):
         super().__init__()
-        inner_dim = dim_head * heads
+        inner_dim = dim_head *  heads
         project_out = not (heads == 1 and dim_head == dim)
 
         self.heads = heads
         self.scale = dim_head ** -0.5
 
-        self.to_k = nn.Linear(dim, inner_dim, bias=False)
-        self.to_v = nn.Linear(dim, inner_dim, bias=False)
-        self.to_q = nn.Linear(dim, inner_dim, bias=False)
+        self.to_k = nn.Linear(dim, inner_dim , bias=False)
+        self.to_v = nn.Linear(dim, inner_dim , bias = False)
+        self.to_q = nn.Linear(dim, inner_dim, bias = False)
 
         self.to_out = nn.Sequential(
             nn.Linear(inner_dim, dim),
@@ -391,13 +325,15 @@ class CrossAttention(nn.Module):
         b, n, _, h = *x_qkv.shape, self.heads
 
         k = self.to_k(x_qkv)
-        k = rearrange(k, 'b n (h d) -> b h n d', h=h)
+        k = rearrange(k, 'b n (h d) -> b h n d', h = h)
 
         v = self.to_v(x_qkv)
-        v = rearrange(v, 'b n (h d) -> b h n d', h=h)
+        v = rearrange(v, 'b n (h d) -> b h n d', h = h)
 
         q = self.to_q(x_qkv[:, 0].unsqueeze(1))
-        q = rearrange(q, 'b n (h d) -> b h n d', h=h)
+        q = rearrange(q, 'b n (h d) -> b h n d', h = h)
+
+
 
         dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
 
@@ -405,38 +341,11 @@ class CrossAttention(nn.Module):
 
         out = einsum('b h i j, b h j d -> b h i d', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)')
-        out = self.to_out(out)
+        out =  self.to_out(out)
         return out
 
-class PositionalEncoding2D(nn.Module):
-    def __init__(self, d_model, height, width):
-        super(PositionalEncoding2D, self).__init__()
-        self.d_model = d_model
-        self.height = height
-        self.width = width
-        self.pe = self.create_positional_encoding()
 
-    def create_positional_encoding(self):
-        pe = torch.zeros(self.d_model, self.height, self.width)
-        for y in range(self.height):
-            for x in range(self.width):
-                pe[:, y, x] = self._encode_position(x, y)
-        return pe
-
-    def _encode_position(self, x, y):
-      
-        encoding = torch.zeros(self.d_model)
-        div_term = torch.exp(torch.arange(0, self.d_model, 2) * -(math.log(10000.0) / self.d_model))
-        encoding[0::2] = torch.sin(x * div_term)
-        encoding[1::2] = torch.cos(y * div_term)
-        return encoding
-
-    def forward(self, x):
-   
-        x = x + self.pe.to(x.device)
-        return x
-
-class DSP2Net(nn.Module):  
+class DSP2Net(nn.Module):  # Tri-CNN 构建的三分支3DCNN网络模型
     @staticmethod
     def weight_init(m):
         if isinstance(m, nn.Linear) or isinstance(m, nn.Conv3d) or isinstance(m, nn.Conv2d):
@@ -452,92 +361,77 @@ class DSP2Net(nn.Module):
         self.conv3d_spatial = nn.Sequential(
             nn.Conv3d(input_channels, out_channels=64, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
             nn.BatchNorm3d(64),
-            DilationConv3D(
-                in_channels=64,
-                out_channels=16,
-                kernel_size=(1, 3, 3),  
-                dilations=(1, 2)  
-            ),
+            nn.Conv3d(64, out_channels=8, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
             nn.ReLU(),
 
         )
         self.conv3d_spectral = nn.Sequential(
             nn.Conv3d(input_channels, out_channels=64, kernel_size=(3, 1, 1), padding=(1, 0, 0)),
             nn.BatchNorm3d(64),
-            DilationConv3D(
-                in_channels=64,
-                out_channels=16,
-                kernel_size=(3, 1, 1),
-                dilations=(1, 2)
-            ),
+            nn.Conv3d(64, out_channels=8, kernel_size=(3, 1, 1), padding=(1, 0, 0)),
             nn.ReLU(),
 
         )
         self.conv3d_spa_ape = nn.Sequential(
             nn.Conv3d(input_channels, out_channels=64, kernel_size=(3, 3, 3), padding=(1, 1, 1)),
             nn.BatchNorm3d(64),
-            DilationConv3D(
-                in_channels=64,
-                out_channels=16,
-                kernel_size=(3, 3, 3),
-                dilations=(1, 2)
-            ),
+            nn.Conv3d(64, out_channels=8, kernel_size=(3, 3, 3), padding=(1, 1, 1)),
             nn.ReLU(),
 
         )
-        self.dy2d_features_1 = nn.Sequential(
-            Involution2d(in_channels=144, out_channels=128, kernel_size=(3, 3), padding=(1, 1)),
+        self.conv2d_features_1 = nn.Sequential(
+            Involution2d(in_channels=136, out_channels=128, kernel_size=(3, 3), padding=(1, 1)),
             nn.BatchNorm2d(128),
             nn.ReLU(),
-            # Second_feature_filtering_att(channel=128)  # 添加空间注意力分支
+            #Second_feature_filtering_att(channel=128)  # 添加空间注意力分支
         )
         self.nn1 = nn.Linear(128, n_classes)
         self.feed_forward = FeedForwardBlock(emb_size=128)
         self.apply(self.weight_init)
         self.bn = nn.BatchNorm1d(num_features=128)
         self.layer_norm = nn.LayerNorm(128)
-        self.msaa = MSAA(in_channels=48, out_channels=24)
-
-        self.positional_encoding = PositionalEncoding2D(d_model=144, height=9, width=9)  # 根据需要调整
+        self.msaa = MSAA(in_channels=144, out_channels=136)
+        self.multi_conv = MultiConvModule(in_channels=136)
+        #self.multi_conv1 = MultiConvModule(in_channels=16)
         self.cross_attention = CrossAttention(dim=128, heads=8, dim_head=8, dropout=0.1)
-
     def forward(self, x):  # forward方法，它定义了数据在神经网络中的前向传播过程
         x_1 = self.conv3d_spatial(x)
-
+        #print("Shape of x_1:", x_1.shape)
         x_2 = self.conv3d_spectral(x)
         x_3 = self.conv3d_spa_ape(x)
 
-
-        x = self.msaa(x_1, x_2, x_3)
-
-
-        x = rearrange(x, 'b c h w y -> b (c h) w y')
-        x = self.positional_encoding(x)
-        x = self.dy2d_features_1(x)
+        #x = torch.cat([x_1, x_2, x_3], dim=1)
+        #print(x.shape)
+        # 去除光谱维度
+        x_1 = rearrange(x_1, 'b c h w y -> b (c h) w y')
+        x_2 = rearrange(x_2, 'b c h w y -> b (c h) w y')
+        x_3 = rearrange(x_3, 'b c h w y -> b (c h) w y')
+        #print(x.shape)
+        x_msaa = self.msaa(x_1, x_2, x_3)
+        #x = self.conv2d_features_1(x_msaa)
+        x = self.multi_conv(x_msaa)
+        x = self.conv2d_features_1(x)
         x = rearrange(x, 'b c h w -> b (h w) c')
-
+        
         x = self.cross_attention(x)
 
         x = x.mean(dim=1)
-      
+        # 进行平均池化操作
         x = F.gelu(x)
-        # print(x.shape)
+        #print(x.shape)
         x = self.feed_forward(x)
         x = self.layer_norm(x)
-
         x = self.nn1(x)
         return x
 
 
 if __name__ == '__main__':
     model = DSP2Net()
-    # model.eval()  
+    # model.eval()   # 模型切换到推理模式
     # print(model)
     input = torch.randn(64, 1, 6, 9, 9)
     print("input shape:", input.shape)
     # y = model(input)
     # print(y.size())
-    # summary(model, input_size=input.shape, device="cpu")
+    #summary(model, input_size=input.shape, device="cpu")
     print("output shape:", model(input).shape)
-
-
