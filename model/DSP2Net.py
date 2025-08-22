@@ -230,23 +230,46 @@ class FeedForwardBlock(nn.Sequential):
 
 
 
+
 class ChannelAttentionModule(nn.Module):
-    def __init__(self, in_channels, reduction=4):
+    def __init__(self, in_channels):
         super(ChannelAttentionModule, self).__init__()
+      
+        self.branch1 = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels // 4, 1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels // 4, in_channels, 1, bias=False)
+        )
+        self.branch2 = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels // 16, 1, bias=False),
+            nn.LeakyReLU(inplace=True),
+            nn.Conv2d(in_channels // 16, in_channels, 1, bias=False)
+        )
+      
+        self.branch3 = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels // 8, 1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels // 8, in_channels, 1, bias=False)
+        )
+
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
-        self.fc = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels // reduction, 1, bias=False),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels // reduction, in_channels, 1, bias=False)
-        )
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        avg_out = self.fc(self.avg_pool(x))
-        max_out = self.fc(self.max_pool(x))
-        out = avg_out + max_out
-        return self.sigmoid(out)
+       
+        avg_out = self.avg_pool(x)
+        max_out = self.max_pool(x)
+
+     
+        out1 = self.branch1(avg_out) + self.branch1(max_out)
+        out2 = self.branch2(avg_out) + self.branch2(max_out)
+        out3 = self.branch3(avg_out) + self.branch3(max_out)
+
+       
+        out11 = self.sigmoid(out2 + out3)
+        out =  out11 + self.sigmoid(out1)
+        return out* x
 
 
 class SpatialAttentionModule(nn.Module):
@@ -435,3 +458,4 @@ if __name__ == '__main__':
     # print(y.size())
     #summary(model, input_size=input.shape, device="cpu")
     print("output shape:", model(input).shape)
+
